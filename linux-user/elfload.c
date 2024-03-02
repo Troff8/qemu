@@ -1942,6 +1942,26 @@ static inline void init_thread(struct target_pt_regs *regs,
 
 #endif /* TARGET_RISCV */
 
+#ifdef TARGET_GF
+#define ELF_ARCH  EM_RISCV
+
+#ifdef TARGET_GF32
+#define ELF_CLASS ELFCLASS32
+#else
+#define ELF_CLASS ELFCLASS64
+#endif
+
+static inline void init_thread(struct target_pt_regs *regs,
+                               struct image_info *infop)
+{
+    regs->sepc = infop->entry;
+    regs->sp = infop->start_stack;
+}
+
+#define ELF_EXEC_PAGESIZE 4096
+
+#endif /* TARGET_GF */
+
 #ifdef TARGET_HPPA
 
 #define ELF_CLASS       ELFCLASS32
