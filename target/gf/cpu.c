@@ -124,6 +124,26 @@ static bool gf_cpu_has_work(CPUState *cs)
 #endif
 }
 
+static void gf_cpu_disas_set_info(CPUState *s, disassemble_info *info)
+{
+    GFCPU *cpu = GF_CPU(s);
+    CPUGFState *env = &cpu->env;
+
+    switch (env->xl) {
+    case MXL_RV32:
+        info->print_insn = print_insn_riscv32;
+        break;
+    case MXL_RV64:
+        info->print_insn = print_insn_riscv64;
+        break;
+    case MXL_RV128:
+        info->print_insn = print_insn_riscv128;
+        break;
+    default:
+        g_assert_not_reached();
+    }
+}
+
 static void gf_cpu_class_init(ObjectClass *c, void *data)
 {
     GFCPUClass *mcc = GF_CPU_CLASS(c);
@@ -146,7 +166,7 @@ static void gf_cpu_class_init(ObjectClass *c, void *data)
     // TODO: cc->gdb_write_register = riscv_cpu_gdb_write_register;
     cc->gdb_num_core_regs = 33;
     cc->gdb_stop_before_watchpoint = true;
-    // TODO: cc->disas_set_info = riscv_cpu_disas_set_info;
+    cc->disas_set_info = gf_cpu_disas_set_info;
     // TODO: cc->gdb_arch_name = riscv_gdb_arch_name;
     // TODO: cc->gdb_get_dynamic_xml = riscv_gdb_get_dynamic_xml;
 }

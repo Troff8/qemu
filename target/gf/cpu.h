@@ -95,4 +95,7 @@ void gf_translate_init(void);
 void cpu_get_tb_cpu_state(CPUGFState *env, vaddr *pc,
                           uint64_t *cs_base, uint32_t *pflags);
 
+G_NORETURN void gf_raise_exception(CPUGFState *env,
+                                   uint32_t exception, uintptr_t pc);
+
 #endif /* RISCV_CPU_H */

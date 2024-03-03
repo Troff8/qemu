@@ -2,6 +2,7 @@ gf_ss = ss.source_set()
 gf_ss.add(files(
   'cpu.c',
   'cpu_helper.c',
+  'op_helper.c',
   'translate.c',
 ))
 

@@ -33,15 +33,108 @@
 #include "exec/helper-info.c.inc"
 #undef  HELPER_H
 
+#define MAX_INSN_LEN 4
+
 /* global register indices */
 static TCGv cpu_gpr[32], cpu_pc;
 
 typedef struct DisasContext {
     DisasContextBase base;
+    target_ulong cur_insn_len;
+    target_ulong pc_save;
 } DisasContext;
+
+#ifdef TARGET_GF32
+#define get_xl(ctx)    MXL_RV32
+#elif defined(CONFIG_USER_ONLY)
+#define get_xl(ctx)    MXL_RV64
+#else
+#define get_xl(ctx)    ((ctx)->xl)
+#endif
+
+static void gen_pc_plus_diff(TCGv target, DisasContext *ctx,
+                             target_long diff)
+{
+    target_ulong dest = ctx->base.pc_next + diff;
+
+    assert(ctx->pc_save != -1);
+    if (tb_cflags(ctx->base.tb) & CF_PCREL) {
+        tcg_gen_addi_tl(target, cpu_pc, dest - ctx->pc_save);
+        if (get_xl(ctx) == MXL_RV32) {
+            tcg_gen_ext32s_tl(target, target);
+        }
+    } else {
+        if (get_xl(ctx) == MXL_RV32) {
+            dest = (int32_t)dest;
+        }
+        tcg_gen_movi_tl(target, dest);
+    }
+}
+
+static void gen_update_pc(DisasContext *ctx, target_long diff)
+{
+    gen_pc_plus_diff(cpu_pc, ctx, diff);
+    ctx->pc_save = ctx->base.pc_next + diff;
+}
+
+static void generate_exception(DisasContext *ctx, int excp)
+{
+    gen_update_pc(ctx, 0);
+    gen_helper_raise_exception(tcg_env, tcg_constant_i32(excp));
+    ctx->base.is_jmp = DISAS_NORETURN;
+}
+
+static void gen_exception_illegal(DisasContext *ctx)
+{
+    generate_exception(ctx, RISCV_EXCP_ILLEGAL_INST);
+}
+
+static void lookup_and_goto_ptr(DisasContext *ctx)
+{
+#ifndef CONFIG_USER_ONLY
+    if (ctx->itrigger) {
+        gen_helper_itrigger_match(tcg_env);
+    }
+#endif
+    tcg_gen_lookup_and_goto_ptr();
+}
+
+static void gen_goto_tb(DisasContext *ctx, int n, target_long diff)
+{
+    target_ulong dest = ctx->base.pc_next + diff;
+
+     /*
+      * Under itrigger, instruction executes one by one like singlestep,
+      * direct block chain benefits will be small.
+      */
+    if (translator_use_goto_tb(&ctx->base, dest)/* && !ctx->itrigger */) {
+        /*
+         * For pcrel, the pc must always be up-to-date on entry to
+         * the linked TB, so that it can use simple additions for all
+         * further adjustments.  For !pcrel, the linked TB is compiled
+         * to know its full virtual address, so we can delay the
+         * update to pc to the unlinked path.  A long chain of links
+         * can thus avoid many updates to the PC.
+         */
+        if (tb_cflags(ctx->base.tb) & CF_PCREL) {
+            gen_update_pc(ctx, diff);
+            tcg_gen_goto_tb(n);
+        } else {
+            tcg_gen_goto_tb(n);
+            gen_update_pc(ctx, diff);
+        }
+        tcg_gen_exit_tb(ctx->base.tb, n);
+    } else {
+        gen_update_pc(ctx, diff);
+        lookup_and_goto_ptr(ctx);
+    }
+}
 
 static void gf_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
+    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+
+    ctx->pc_save = ctx->base.pc_first;
 }
 
 static void gf_tr_tb_start(DisasContextBase *db, CPUState *cpu)
@@ -50,15 +143,65 @@ static void gf_tr_tb_start(DisasContextBase *db, CPUState *cpu)
 
 static void gf_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
 {
+    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    target_ulong pc_next = ctx->base.pc_next;
+
+    if (tb_cflags(dcbase->tb) & CF_PCREL) {
+        pc_next &= ~TARGET_PAGE_MASK;
+    }
+
+    tcg_gen_insn_start(pc_next);
 }
 
 static void gf_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 {
-    g_assert(0 && "implement gf_tr_translate_insn");
+    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    CPUGFState *env = cpu_env(cpu);
+    uint32_t insn = translator_ldl(env, &ctx->base, ctx->base.pc_next);
+
+    // TODO: decode and translate insn
+    ctx->cur_insn_len = 4;
+#if 1
+    // syscall exit(13)
+    tcg_gen_movi_i32(cpu_gpr[xA7], 93);
+    tcg_gen_movi_i32(cpu_gpr[xA0], 13);
+    generate_exception(ctx, RISCV_EXCP_U_ECALL);
+#else
+    gen_exception_illegal(ctx);
+#endif
+    ctx->base.pc_next += ctx->cur_insn_len;
+
+    /* Only the first insn within a TB is allowed to cross a page boundary. */
+    if (ctx->base.is_jmp == DISAS_NEXT) {
+        if (!is_same_page(&ctx->base, ctx->base.pc_next)) {
+            ctx->base.is_jmp = DISAS_TOO_MANY;
+        } else {
+            unsigned page_ofs = ctx->base.pc_next & ~TARGET_PAGE_MASK;
+
+            if (page_ofs > TARGET_PAGE_SIZE - MAX_INSN_LEN) {
+                int len = 4;
+
+                if (!is_same_page(&ctx->base, ctx->base.pc_next + len - 1)) {
+                    ctx->base.is_jmp = DISAS_TOO_MANY;
+                }
+            }
+        }
+    }
 }
 
 static void gf_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
 {
+    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+
+    switch (ctx->base.is_jmp) {
+    case DISAS_TOO_MANY:
+        gen_goto_tb(ctx, 0, 0);
+        break;
+    case DISAS_NORETURN:
+        break;
+    default:
+        g_assert_not_reached();
+    }
 }
 
 static void gf_tr_disas_log(const DisasContextBase *dcbase,
