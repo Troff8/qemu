@@ -1266,8 +1266,9 @@ static bool tcg_trans_Addi(DisasContext *ctx, uint64_t arg_0, uint64_t arg_1, ui
 	gen_set_label(l_404);
 	tcg_gen_br(exit_404);
 	gen_set_label(l_437);
-	TCGv tmp_4 = tcg_temp_new();
-	tcg_gen_mov_tl(tmp_4, cpu_gpr[arg_1 / 4]);
+	//TCGv tmp_4 = tcg_temp_new();
+	//tcg_gen_mov_tl(tmp_4, cpu_gpr[arg_1 / 4]);
+	TCGv tmp_4 = get_gpr(ctx, arg_1 / 4);
 	tcg_gen_mov_tl(tmp_3, tmp_4);
 	tcg_gen_br(l_404);
 	gen_set_label(exit_404);
@@ -1287,7 +1288,8 @@ static bool tcg_trans_Addi(DisasContext *ctx, uint64_t arg_0, uint64_t arg_1, ui
 	gen_set_label(l_308);
 	tcg_gen_br(exit_308);
 	gen_set_label(l_15);
-	tcg_gen_mov_tl(cpu_gpr[arg_0 / 4], tmp_5);
+	//tcg_gen_mov_tl(cpu_gpr[arg_0 / 4], tmp_5);
+	set_gpr(ctx, arg_0 / 4, tmp_5);
 	tcg_gen_br(l_308);
 	gen_set_label(exit_308);
 	return true;
@@ -1295,12 +1297,13 @@ static bool tcg_trans_Addi(DisasContext *ctx, uint64_t arg_0, uint64_t arg_1, ui
 
 static bool trans_Addi(DisasContext *ctx, uint64_t arg_0, uint64_t arg_1, uint64_t arg_2)
 {
-#if 0
+#if 1
 	uint64_t tmp_3 = arg_0 * 0x0004;
 	uint64_t tmp_4 = 0x0000 + tmp_3;
 	uint64_t tmp_5 = arg_2 * 0x0004;
 	uint64_t tmp_6 = 0x0000 + tmp_5;
-	uint64_t tmp_7 = (0xFFFFF << 12) * (arg_1 & (1 << 12) >> 12);
+	//uint64_t tmp_7 = (0xFFFFF << 12) * (arg_1 & (1 << 12) >> 12);
+	uint64_t tmp_7 = sextract32(arg_1, 0, 12);
 	uint64_t tmp_8 = tmp_7 | arg_1;
 	tcg_trans_Addi(ctx, tmp_4, tmp_6, tmp_8);
 #else
