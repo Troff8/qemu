@@ -29,6 +29,7 @@
 // TODO: #include "tcg/tcg-cpu.h"
 #include "tcg/tcg.h"
 
+#define NUMBER_OF_CPU_REGISTERS 32
 const char * const gf_int_regnames[] = {
     "x0/zero", "x1/ra",  "x2/sp",  "x3/gp",  "x4/tp",  "x5/t0",   "x6/t1",
     "x7/t2",   "x8/s0",  "x9/s1",  "x10/a0", "x11/a1", "x12/a2",  "x13/a3",

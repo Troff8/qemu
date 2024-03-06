@@ -130,6 +130,21 @@ static void gen_goto_tb(DisasContext *ctx, int n, target_long diff)
     }
 }
 
+static TCGv get_gpr(DisasContext *ctx, int reg)
+{
+    return reg == 0 ? tcg_constant_tl(0) : cpu_gpr[reg];
+}
+
+static void set_gpr(DisasContext *ctx, int reg, TCGv val)
+{
+    if (reg) {
+        tcg_gen_mov_tl(cpu_gpr[reg], val);
+    }
+}
+
+#include "translate_generate.c.inc"
+#include "decode_generate.c.inc"
+
 static void gf_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
@@ -159,16 +174,25 @@ static void gf_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     CPUGFState *env = cpu_env(cpu);
     uint32_t insn = translator_ldl(env, &ctx->base, ctx->base.pc_next);
 
-    // TODO: decode and translate insn
     ctx->cur_insn_len = 4;
-#if 1
-    // syscall exit(13)
-    tcg_gen_movi_i32(cpu_gpr[xA7], 93);
-    tcg_gen_movi_i32(cpu_gpr[xA0], 13);
-    generate_exception(ctx, RISCV_EXCP_U_ECALL);
-#else
-    gen_exception_illegal(ctx);
-#endif
+ #if 1
+    if (!decode(ctx, insn)) {
+        // HACK:
+        if (insn == 0x73) {
+            // ecall
+            generate_exception(ctx, RISCV_EXCP_U_ECALL);
+        } else {
+            gen_exception_illegal(ctx);
+        }
+    }
+ #elif 1
+     // syscall exit(13)
+     tcg_gen_movi_i32(cpu_gpr[xA7], 93);
+     tcg_gen_movi_i32(cpu_gpr[xA0], 13);
+     generate_exception(ctx, RISCV_EXCP_U_ECALL);
+ #else
+     gen_exception_illegal(ctx);
+ #endif
     ctx->base.pc_next += ctx->cur_insn_len;
 
     /* Only the first insn within a TB is allowed to cross a page boundary. */
